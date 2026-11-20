@@ -29,6 +29,15 @@ function _isValidRect(rect) {
         Number.isFinite(rect.width) && Number.isFinite(rect.height);
 }
 
+// A window being torn down can still be in the tree for one more idle pass.
+// Calling move_frame() on it can segfault inside mutter, which no JS
+// try/catch can stop. A live, mapped window has an actor, a workspace and
+// a monitor.
+function _isLive(metaWindow, actor) {
+    return !!actor && !!metaWindow.get_workspace() &&
+        metaWindow.get_monitor() >= 0;
+}
+
 /**
  * Animate a window from its current position/size to a target rect.
  *
@@ -46,7 +55,7 @@ export function animateWindow(metaWindow, targetRect, durationMs) {
 
     const duration = durationMs ?? DEFAULT_DURATION_MS;
     const actor = metaWindow.get_compositor_private();
-    if (!actor)
+    if (!_isLive(metaWindow, actor))
         return;
 
     const oldRect = metaWindow.get_frame_rect();
@@ -202,15 +211,16 @@ export function snapWindow(metaWindow, targetRect) {
     }
 
     const actor = metaWindow.get_compositor_private();
-    if (actor) {
-        actor.remove_all_transitions();
-        // Ensure real actor is visible (in case animation was interrupted)
-        actor.opacity = 255;
-        actor.translation_x = 0;
-        actor.translation_y = 0;
-        actor.scale_x = 1;
-        actor.scale_y = 1;
-    }
+    if (!_isLive(metaWindow, actor))
+        return;
+
+    actor.remove_all_transitions();
+    // Ensure real actor is visible (in case animation was interrupted)
+    actor.opacity = 255;
+    actor.translation_x = 0;
+    actor.translation_y = 0;
+    actor.scale_x = 1;
+    actor.scale_y = 1;
     blockWindowSignals(metaWindow);
     metaWindow.move_frame(true, targetRect.x, targetRect.y);
     metaWindow.move_resize_frame(
